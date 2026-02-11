@@ -29,7 +29,7 @@ const bootstrap = ({ strapi }: { strapi: Core.Strapi }) => {
 
           for (const contentType of indexedContentTypes) {
             try {
-              lifecycleService.subscribeContentType(contentType);
+              lifecycleService.subscribeContentType({ contentType });
             } catch (error) {
               strapi.log.warn(`[meilisearch-plus] Failed to subscribe to ${contentType}:`, error);
             }

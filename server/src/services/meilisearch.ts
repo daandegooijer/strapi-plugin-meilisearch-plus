@@ -171,6 +171,20 @@ export default ({ strapi }) => ({
       );
       taskUids.push(response.taskUid);
     }
+
+    // Wait for all indexing tasks to complete before returning
+    if (taskUids.length > 0) {
+      try {
+        // Wait for each task individually to ensure all are complete
+        for (const taskUid of taskUids) {
+          await client.waitForTask(taskUid);
+        }
+        strapi.log.debug(`[meilisearch-plus] All indexing tasks completed for ${contentType}`);
+      } catch (error) {
+        strapi.log.warn(`[meilisearch-plus] Error waiting for indexing tasks:`, error);
+      }
+    }
+
     await storeService.addIndexedContentType(contentType);
     // Optionally subscribe to lifecycle events here
     return taskUids;
@@ -178,6 +192,7 @@ export default ({ strapi }) => ({
 
   /**
    * Remove all documents for a content type from MeiliSearch
+   * Handles pagination in case there are more documents than the search limit
    */
   async emptyOrDeleteIndex({ contentType }: { contentType: string }) {
     const client = await this.initializeClient();
@@ -189,16 +204,42 @@ export default ({ strapi }) => ({
       return;
     }
     const index = client.index(finalIndexName);
-    // Find all documents for this content type
-    const searchResult = await index.search('', {
-      filter: [`_contentType = "${contentType}"`],
-      limit: 10000,
-    });
-    const ids = searchResult.hits.map((hit: any) => hit.id);
-    if (ids.length > 0) {
-      await index.deleteDocuments(ids);
-      strapi.log.info(`[meilisearch-plus] Deleted ${ids.length} documents for ${contentType}`);
+
+    let totalDeleted = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      // Always search from offset 0 since we delete as we go
+      const searchResult = await index.search('', {
+        filter: [`_contentType = "${contentType}"`],
+        limit: 100000,
+        offset: 0,
+      });
+
+      const ids = searchResult.hits.map((hit: any) => hit.id);
+
+      if (ids.length > 0) {
+        const response = await index.deleteDocuments(ids);
+        // Wait for deletion task to complete
+        await client.waitForTask(response.taskUid);
+        totalDeleted += ids.length;
+        strapi.log.debug(
+          `[meilisearch-plus] Batch deleted ${ids.length} documents for ${contentType}`
+        );
+      }
+
+      // Check if there are more documents to delete
+      hasMore = searchResult.estimatedTotalHits > 0;
     }
+
+    if (totalDeleted > 0) {
+      strapi.log.info(
+        `[meilisearch-plus] Total deleted: ${totalDeleted} documents for ${contentType}`
+      );
+    } else {
+      strapi.log.info(`[meilisearch-plus] No documents found to delete for ${contentType}`);
+    }
+
     await storeService.removeIndexedContentType(contentType);
     // Optionally unsubscribe from lifecycle events here
   },
@@ -251,18 +292,21 @@ export default ({ strapi }) => ({
         // Only delete documents for the specified content type
         const searchResult = await index.search('', {
           filter: [`_contentType = "${contentType}"`],
-          limit: 10000,
+          limit: 100000, // Increased to handle larger datasets
         });
         const ids = searchResult.hits.map((hit: any) => hit.id);
         if (ids.length > 0) {
-          await index.deleteDocuments(ids);
+          const response = await index.deleteDocuments(ids);
+          // Wait for deletion task to complete
+          await client.waitForTask(response.taskUid);
           strapi.log.info(`[meilisearch-plus] Deleted ${ids.length} documents for ${contentType}`);
         } else {
           strapi.log.info(`[meilisearch-plus] No documents found for ${contentType} to delete.`);
         }
       } else {
         // If no contentType specified, delete all documents (fallback)
-        await index.deleteAllDocuments();
+        const response = await index.deleteAllDocuments();
+        await client.waitForTask(response.taskUid);
         strapi.log.info(`[meilisearch-plus] Deleted all documents in index`);
       }
     } catch (error) {

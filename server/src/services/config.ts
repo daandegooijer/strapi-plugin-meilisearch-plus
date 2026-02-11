@@ -29,11 +29,24 @@ export default ({ strapi }: { strapi: Core.Strapi }) => {
 
     /**
      * Get the configuration for a specific content type
-     * @param contentType - The short name (e.g., 'page', 'job')
+     * @param contentType - Can be short name (e.g., 'page') or full UID (e.g., 'api::page.page')
      */
     getContentTypeConfig(contentType: string): ContentTypeConfig {
       const pluginConfig = this.getPluginConfig();
-      return (pluginConfig[contentType] as ContentTypeConfig) || {};
+
+      // Try direct lookup first (short name)
+      if (pluginConfig[contentType]) {
+        return (pluginConfig[contentType] as ContentTypeConfig) || {};
+      }
+
+      // If not found and looks like a UID, extract the short name
+      // api::vacancy.vacancy -> vacancy
+      const shortName = contentType.split('.').pop();
+      if (shortName && pluginConfig[shortName]) {
+        return (pluginConfig[shortName] as ContentTypeConfig) || {};
+      }
+
+      return {};
     },
 
     /**

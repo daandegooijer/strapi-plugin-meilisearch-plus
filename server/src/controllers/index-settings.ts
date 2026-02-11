@@ -210,16 +210,31 @@ export default ({ strapi }: { strapi: any }) => ({
         sortableAttributes.unshift('_contentType');
       }
 
+      // Get stored maxTotalHits
+      const maxTotalHits = await storeService.getStoreKey({
+        key: 'meilisearch-max-total-hits',
+      });
+
       strapi.log.info(
-        `[meilisearch-plus] Applying settings: filterable=[${filterableAttributes.join(', ')}], sortable=[${sortableAttributes.join(', ')}]`
+        `[meilisearch-plus] Applying settings: filterable=[${filterableAttributes.join(', ')}], sortable=[${sortableAttributes.join(', ')}], maxTotalHits=${maxTotalHits}`
       );
+
+      // Build settings object with all configuration
+      const indexSettings: any = {
+        filterableAttributes,
+        sortableAttributes,
+      };
+
+      // Add pagination settings if maxTotalHits is set
+      if (maxTotalHits) {
+        indexSettings.pagination = {
+          maxTotalHits,
+        };
+      }
 
       // Apply settings to Meilisearch index
       await meilisearchService.updateIndexSettings({
-        settings: {
-          filterableAttributes,
-          sortableAttributes,
-        },
+        settings: indexSettings,
       });
 
       ctx.body = {

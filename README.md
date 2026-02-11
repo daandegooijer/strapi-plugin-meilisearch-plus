@@ -188,6 +188,7 @@ The plugin supports custom data processing through `transformEntry` and `filterE
 ### transformEntry
 
 Apply custom transformations to entries before indexing. Useful for:
+
 - Flattening nested data structures
 - Enriching entries with computed fields
 - Extracting specific fields for search
@@ -224,6 +225,7 @@ Apply custom transformations to entries before indexing. Useful for:
 ### filterEntry
 
 Filter out entries that shouldn't be indexed. Useful for:
+
 - Excluding entries with certain conditions
 - Filtering by custom field values
 - Permission-based filtering

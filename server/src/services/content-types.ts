@@ -138,12 +138,15 @@ export default ({ strapi }) => ({
       const index = client.index(finalIndexName);
 
       // Search using _contentType filter to count documents for this type
+      // Use limit: 1 to get accurate total from response without fetching all documents
       const result = await index.search('', {
         filter: [`_contentType = "${contentType}"`],
-        limit: 0,
+        limit: 1,
       });
 
-      return result.estimatedTotalHits || 0;
+      // Try to get the most accurate count from available response fields
+      // nbHits is the accurate total from MeiliSearch SDK response
+      return result.nbHits || (result as any).total || result.estimatedTotalHits || 0;
     } catch (error: any) {
       // Silently handle "Index not found" errors - this is expected when index hasn't been created yet
       if (error?.message?.includes('not found')) {

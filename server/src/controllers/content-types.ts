@@ -149,7 +149,7 @@ export default ({ strapi }) => ({
       const lifecycleService = strapi.plugin('meilisearch-plus').service('lifecycle');
 
       await storeService.addIndexedContentType(contentType);
-      lifecycleService.subscribeContentType(contentType);
+      lifecycleService.subscribeContentType({ contentType });
 
       const indexedContentTypes = await storeService.getIndexedContentTypes();
       ctx.body = { data: indexedContentTypes };
@@ -179,7 +179,7 @@ export default ({ strapi }) => ({
 
       // Remove from store and unsubscribe
       await storeService.removeIndexedContentType(contentType);
-      lifecycleService.unsubscribeContentType(contentType);
+      lifecycleService.unsubscribeContentType({ contentType });
 
       const indexedContentTypes = await storeService.getIndexedContentTypes();
       ctx.body = { data: indexedContentTypes };
