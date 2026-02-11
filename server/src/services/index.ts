@@ -3,6 +3,7 @@ import meilisearch from './meilisearch';
 import store from './store';
 import lifecycle from './lifecycle';
 import contentTypes from './content-types';
+import config from './config';
 
 export default {
   'meilisearch-client': meilisearchClient,
@@ -10,4 +11,5 @@ export default {
   store,
   lifecycle,
   'content-types': contentTypes,
+  config,
 };

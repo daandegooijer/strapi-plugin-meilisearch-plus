@@ -16,6 +16,8 @@ A comprehensive MeiliSearch integration plugin for Strapi v5 that enables full-t
 - **Connection Testing**: Verify MeiliSearch connection before operations
 - **Index Status**: Monitor index health and sync status with display names
 - **Content Type Display Names**: Full content type metadata with human-readable names
+- **Custom Entry Transformation**: Apply `transformEntry` and `filterEntry` functions from plugin config for custom data processing before indexing
+- **Per-Application Logic**: Override and customize entry data per content type/application in plugins.ts
 
 ### Admin API Routes
 
@@ -177,6 +179,69 @@ Set these in your `.env` file:
 MEILISEARCH_HOST=http://localhost:7700
 MEILISEARCH_API_KEY=your-api-key
 MEILISEARCH_INDEX_NAME=your-index-name
+```
+
+## Custom Entry Transformation
+
+The plugin supports custom data processing through `transformEntry` and `filterEntry` functions in the plugin config, allowing you to apply application-specific logic before indexing.
+
+### transformEntry
+
+Apply custom transformations to entries before indexing. Useful for:
+- Flattening nested data structures
+- Enriching entries with computed fields
+- Extracting specific fields for search
+- Custom data formatting
+
+```typescript
+'meilisearch-plus': {
+  page: {
+    indexName: env('MEILISEARCH_INDEX_NAME'),
+    entriesQuery: { locale: 'all' },
+    async transformEntry({ entry, contentType }) {
+      // Transform entry before indexing
+      return {
+        ...entry,
+        // Add custom computed fields
+        title: entry.title?.toUpperCase(),
+        // Flatten hero image
+        heroImage: entry.hero?.[0]?.image?.url,
+        // Format dates
+        publishedDate: entry.publishedAt ? new Date(entry.publishedAt).toLocaleDateString() : null,
+      };
+    },
+  },
+  job: {
+    indexName: env('MEILISEARCH_INDEX_NAME'),
+    entriesQuery: { locale: 'all' },
+    async transformEntry({ entry, contentType }) {
+      return await transform(entry, 'api::job.job');
+    },
+  },
+}
+```
+
+### filterEntry
+
+Filter out entries that shouldn't be indexed. Useful for:
+- Excluding entries with certain conditions
+- Filtering by custom field values
+- Permission-based filtering
+
+```typescript
+'meilisearch-plus': {
+  page: {
+    indexName: env('MEILISEARCH_INDEX_NAME'),
+    entriesQuery: { locale: 'all' },
+    async filterEntry({ entry, contentType }) {
+      // Only index pages that are marked as searchable
+      return entry.isSearchable === true;
+    },
+    async transformEntry({ entry, contentType }) {
+      return entry;
+    },
+  },
+}
 ```
 
 ## UID Mapping and Content Type Handling

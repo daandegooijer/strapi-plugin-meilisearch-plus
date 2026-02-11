@@ -26,6 +26,71 @@ export default ({ strapi }) => ({
   BATCH_SIZE: 1000,
 
   /**
+   * Index a single document in MeiliSearch
+   */
+  async indexDocument({
+    contentType,
+    document,
+  }: {
+    contentType: string;
+    document: any;
+  }): Promise<void> {
+    if (!document) return;
+
+    const client = await this.initializeClient();
+    if (!client) return;
+
+    try {
+      const storeService = strapi.plugin('meilisearch-plus').service('store');
+      const contentTypeService = strapi.plugin('meilisearch-plus').service('content-types');
+      const finalIndexName = await storeService.getIndexName();
+
+      if (!finalIndexName) {
+        strapi.log.warn('[meilisearch-plus] No index name configured');
+        return;
+      }
+
+      // Get the full UID for content type
+      const contentTypeUid = contentTypeService.getContentTypeUid({ contentType });
+      if (!contentTypeUid) {
+        strapi.log.error(`[meilisearch-plus] Invalid content type: ${contentType}`);
+        return;
+      }
+
+      // Fetch the complete published document from database
+      const fullDocument = await strapi.documents(contentTypeUid).findOne({
+        documentId: document.documentId || document.id,
+        status: 'published',
+      });
+
+      if (!fullDocument) {
+        strapi.log.debug(
+          `[meilisearch-plus] Document not found or not published: ${document.documentId || document.id}`
+        );
+        return;
+      }
+
+      // Sanitize and transform
+      const sanitized = await this.sanitizeEntries({
+        contentType,
+        entries: [fullDocument],
+      });
+
+      if (sanitized.length === 0) return;
+
+      // Index the document
+      const index = client.index(finalIndexName);
+      const response = await index.addDocuments(sanitized, { primaryKey: 'id' });
+
+      strapi.log.debug(
+        `[meilisearch-plus] Indexed document ${document.documentId || document.id} for ${contentType} (Task uid: ${response.taskUid})`
+      );
+    } catch (error) {
+      strapi.log.error(`[meilisearch-plus] Failed to index document for ${contentType}:`, error);
+    }
+  },
+
+  /**
    * Sanitize and transform entries for MeiliSearch
    */
   async sanitizeEntries({
@@ -35,11 +100,30 @@ export default ({ strapi }) => ({
     contentType: string;
     entries: any[];
   }): Promise<any[]> {
-    // TODO: Add your own sanitization logic here (remove unpublished, sensitive, etc.)
-    // For now, just add _contentType and id
-    return entries.map((entry) => ({
+    if (!Array.isArray(entries) || entries.length === 0) {
+      return entries;
+    }
+
+    const configService = strapi.plugin('meilisearch-plus').service('config');
+
+    // Apply filterEntry from plugin config
+    let filtered = await configService.filterEntries({
+      contentType,
+      entries,
+    });
+
+    // Apply transformEntry from plugin config
+    let transformed = await configService.transformEntries({
+      contentType,
+      entries: filtered,
+    });
+
+    // Add _contentType, documentId (primary key for Strapi v5), and locale
+    return transformed.map((entry) => ({
       _contentType: contentType,
-      id: entry.id || entry.documentId,
+      id: entry.documentId || entry.id, // Strapi v5 uses documentId as primary key
+      documentId: entry.documentId || entry.id,
+      locale: entry.locale || 'en',
       ...entry,
     }));
   },

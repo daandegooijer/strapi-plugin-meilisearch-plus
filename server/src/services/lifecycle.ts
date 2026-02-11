@@ -47,7 +47,9 @@ export default ({ strapi }) => ({
       async afterDelete(event) {
         const { result } = event;
         try {
-          await meilisearchService.deleteDocument({ contentType, documentId: result.id });
+          // Use documentId (Strapi v5 standard)
+          const documentId = result.documentId || result.id;
+          await meilisearchService.deleteDocument({ contentType, documentId });
           strapi.log.debug(`[meilisearch-plus] Deleted indexed document for ${contentType}`);
         } catch (error) {
           strapi.log.error(

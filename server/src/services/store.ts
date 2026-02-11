@@ -121,8 +121,8 @@ export default ({ strapi }) => {
     async addIndexedContentType(contentType: string): Promise<void> {
       const contentTypes = await this.getIndexedContentTypes();
 
-      console.log('Current indexed content types:', contentTypes);
-      console.log('Adding content type:', contentType);
+      strapi.log.debug('[meilisearch-plus] Current indexed content types:', contentTypes);
+      strapi.log.debug('[meilisearch-plus] Adding content type:', contentType);
       if (!contentTypes.includes(contentType)) {
         contentTypes.push(contentType);
         await this.setIndexedContentTypes(contentTypes);
