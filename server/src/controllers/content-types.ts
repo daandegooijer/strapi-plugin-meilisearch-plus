@@ -147,9 +147,21 @@ export default ({ strapi }) => ({
 
       const storeService = strapi.plugin('meilisearch-plus').service('store');
       const lifecycleService = strapi.plugin('meilisearch-plus').service('lifecycle');
+      const meilisearchService = strapi.plugin('meilisearch-plus').service('meilisearch');
 
       await storeService.addIndexedContentType(contentType);
       lifecycleService.subscribeContentType({ contentType });
+
+      // Create/ensure the index exists and start initial indexing
+      // This happens asynchronously to not block the response
+      meilisearchService
+        .addContentTypeInMeiliSearch({ contentType })
+        .catch((error) => {
+          strapi.log.error(
+            `[meilisearch-plus] Background indexing for ${contentType} failed:`,
+            error
+          );
+        });
 
       const indexedContentTypes = await storeService.getIndexedContentTypes();
       ctx.body = { data: indexedContentTypes };

@@ -11,7 +11,9 @@ const IndexSettingsTab = lazy(() => import('./IndexSettingsTab'));
  */
 const PluginTabs: React.FC = () => {
   const { i18n } = useI18n();
-  const [activeTab, setActiveTab] = useState<'collections' | 'settings' | 'indexSettings'>('collections');
+  const [activeTab, setActiveTab] = useState<'collections' | 'settings' | 'indexSettings'>(
+    'collections'
+  );
 
   return (
     <Box background="neutral100" padding={4}>

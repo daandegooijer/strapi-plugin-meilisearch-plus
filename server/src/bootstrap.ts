@@ -21,6 +21,10 @@ const bootstrap = ({ strapi }: { strapi: Core.Strapi }) => {
         // Get indexed content types (user-selected to index) from store
         const indexedContentTypes = await storeService.getIndexedContentTypes();
 
+        strapi.log.info(
+          `[meilisearch-plus] Retrieved ${indexedContentTypes?.length || 0} indexed content types from store`
+        );
+
         if (indexedContentTypes && indexedContentTypes.length > 0) {
           strapi.log.info(
             `[meilisearch-plus] Subscribing to ${indexedContentTypes.length} indexed content types:`,
@@ -29,16 +33,20 @@ const bootstrap = ({ strapi }: { strapi: Core.Strapi }) => {
 
           for (const contentType of indexedContentTypes) {
             try {
+              strapi.log.info(`[meilisearch-plus] Subscribing to content type: ${contentType}`);
               lifecycleService.subscribeContentType({ contentType });
+              strapi.log.info(`[meilisearch-plus] ✓ Successfully subscribed to: ${contentType}`);
             } catch (error) {
-              strapi.log.warn(`[meilisearch-plus] Failed to subscribe to ${contentType}:`, error);
+              strapi.log.warn(`[meilisearch-plus] ✗ Failed to subscribe to ${contentType}:`, error);
             }
           }
         } else {
-          strapi.log.info('[meilisearch-plus] No indexed content types found');
+          strapi.log.warn(
+            '[meilisearch-plus] ⚠️  No indexed content types found - lifecycle subscriptions will not be active'
+          );
         }
 
-        strapi.log.info('[meilisearch-plus] Bootstrap complete');
+        strapi.log.info('[meilisearch-plus] ✓ Bootstrap complete');
       } catch (error) {
         strapi.log.error('[meilisearch-plus] Bootstrap error:', error);
       }

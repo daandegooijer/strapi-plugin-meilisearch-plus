@@ -80,7 +80,7 @@ export default ({ strapi }) => ({
 
       // Index the document
       const index = client.index(finalIndexName);
-      const response = await index.addDocuments(sanitized, { primaryKey: 'id' });
+      const response = await index.addDocuments(sanitized);
 
       strapi.log.debug(
         `[meilisearch-plus] Indexed document ${document.documentId || document.id} for ${contentType} (Task uid: ${response.taskUid})`
@@ -119,13 +119,18 @@ export default ({ strapi }) => ({
     });
 
     // Add _contentType, documentId (primary key for Strapi v5), and locale
-    return transformed.map((entry) => ({
-      _contentType: contentType,
-      id: entry.documentId || entry.id, // Strapi v5 uses documentId as primary key
-      documentId: entry.documentId || entry.id,
-      locale: entry.locale || 'en',
-      ...entry,
-    }));
+    // The 'id' field should be composite (documentId_locale) for unique identification across locales
+    return transformed.map((entry) => {
+      const docId = entry.documentId || entry.id;
+      const locale = entry.locale && entry.locale !== null ? entry.locale : 'en';
+      return {
+        ...entry,
+        _contentType: contentType,
+        id: `${docId}_${locale}`, // Composite primary key for multi-locale support
+        documentId: docId,
+        locale, // Override with our default if it was null/undefined
+      };
+    });
   },
 
   /**
@@ -141,6 +146,71 @@ export default ({ strapi }) => ({
       strapi.log.warn('[meilisearch-plus] No index name configured');
       return [];
     }
+
+    // Ensure the index exists with the correct primary key
+    let indexWasJustCreated = false;
+    try {
+      const indexInfo = await client.getIndex(finalIndexName).catch(() => null);
+
+      if (!indexInfo) {
+        // Index doesn't exist, create it fresh
+        strapi.log.info(
+          `[meilisearch-plus] Creating index ${finalIndexName} with primaryKey: 'id'`
+        );
+        await client.createIndex(finalIndexName, { primaryKey: 'id' });
+
+        // Set filterable attributes for the new index
+        await client.index(finalIndexName).updateSettings({
+          filterableAttributes: ['_contentType'],
+        });
+
+        indexWasJustCreated = true;
+        strapi.log.info(
+          `[meilisearch-plus] ✓ Index ${finalIndexName} created with primaryKey: 'id' and filterableAttributes: ['_contentType']`
+        );
+      } else {
+        // Index exists, check if primary key is correct
+        const currentPrimaryKey = indexInfo.primaryKey;
+
+        if (currentPrimaryKey !== 'id') {
+          strapi.log.warn(
+            `[meilisearch-plus] Index ${finalIndexName} has primaryKey: '${currentPrimaryKey}' but expected 'id'. Deleting and recreating...`
+          );
+          try {
+            // Delete the entire index
+            await client.deleteIndex(finalIndexName);
+            strapi.log.info(`[meilisearch-plus] ✓ Deleted index ${finalIndexName}`);
+
+            // Recreate with correct primary key
+            await client.createIndex(finalIndexName, { primaryKey: 'id' });
+
+            // Set filterable attributes for the recreated index
+            await client.index(finalIndexName).updateSettings({
+              filterableAttributes: ['_contentType'],
+            });
+
+            indexWasJustCreated = true;
+            strapi.log.info(
+              `[meilisearch-plus] ✓ Recreated index ${finalIndexName} with primaryKey: 'id' and filterableAttributes: ['_contentType']`
+            );
+          } catch (recreateError: any) {
+            strapi.log.error(
+              `[meilisearch-plus] Could not recreate index ${finalIndexName}:`,
+              recreateError.message
+            );
+            throw recreateError;
+          }
+        } else {
+          strapi.log.info(
+            `[meilisearch-plus] Index ${finalIndexName} exists with correct primaryKey: 'id'`
+          );
+        }
+      }
+    } catch (error) {
+      strapi.log.error(`[meilisearch-plus] Error ensuring index ${finalIndexName}:`, error);
+      throw error;
+    }
+
     const index = client.index(finalIndexName);
     // Get UID for content type
     const contentTypeUid = contentTypeService.getContentTypeUid({ contentType });
@@ -165,7 +235,8 @@ export default ({ strapi }) => ({
     let taskUids: any[] = [];
     for (let i = 0; i < sanitized.length; i += this.BATCH_SIZE) {
       const batch = sanitized.slice(i, i + this.BATCH_SIZE);
-      const response = await index.addDocuments(batch, { primaryKey: 'id' });
+      // Never pass primaryKey to addDocuments - it's an index setting, not an option
+      const response = await index.addDocuments(batch);
       strapi.log.info(
         `[meilisearch-plus] Added batch of ${batch.length} documents for ${contentType} (Task uid: ${response.taskUid})`
       );
@@ -253,24 +324,54 @@ export default ({ strapi }) => ({
     return this.addContentTypeInMeiliSearch({ contentType });
   },
 
-  async deleteDocument({ contentType, documentId, indexName = null }: any) {
+  async deleteDocument({ contentType, documentId, locale = 'en', indexName = null }: any) {
+    // Construct the composite primary key (must match how documents are indexed)
+    const compositeId = `${documentId}_${locale}`;
+
+    strapi.log.info(`[meilisearch-plus] deleteDocument called with:`, {
+      contentType,
+      documentId,
+      locale,
+      compositeId,
+      indexName,
+    });
+
     const client = await this.initializeClient();
-    if (!client) return;
+    if (!client) {
+      strapi.log.error('[meilisearch-plus] No Meilisearch client available for deletion');
+      return;
+    }
 
     try {
       const storeService = strapi.plugin('meilisearch-plus').service('store');
       const finalIndexName = indexName || (await storeService.getIndexName());
 
+      strapi.log.info(`[meilisearch-plus] Using index name: ${finalIndexName}`);
+
       if (!finalIndexName) {
-        strapi.log.warn('[meilisearch-plus] No index name configured');
+        strapi.log.warn('[meilisearch-plus] No index name configured for deletion');
         return;
       }
 
       const index = client.index(finalIndexName);
-      await index.deleteDocument(documentId);
-      strapi.log.debug(`[meilisearch-plus] Deleted document ${documentId} from ${finalIndexName}`);
+      strapi.log.info(
+        `[meilisearch-plus] About to delete document ${compositeId} from index ${finalIndexName}`
+      );
+
+      const response = await index.deleteDocument(compositeId);
+
+      // Wait for the deletion task to complete before returning
+      strapi.log.info(
+        `[meilisearch-plus] Waiting for deletion task ${response.taskUid} to complete...`
+      );
+      await client.waitForTask(response.taskUid);
+
+      strapi.log.info(
+        `[meilisearch-plus] ✓ Successfully deleted document ${compositeId} from ${finalIndexName}`,
+        { taskUid: response.taskUid }
+      );
     } catch (error) {
-      strapi.log.error('[meilisearch-plus] Failed to delete document:', error);
+      strapi.log.error(`[meilisearch-plus] ✗ Failed to delete document ${compositeId}:`, error);
     }
   },
 

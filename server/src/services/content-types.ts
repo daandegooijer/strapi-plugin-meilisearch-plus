@@ -149,12 +149,21 @@ export default ({ strapi }) => ({
       return result.nbHits || (result as any).total || result.estimatedTotalHits || 0;
     } catch (error: any) {
       // Silently handle "Index not found" errors - this is expected when index hasn't been created yet
-      if (error?.message?.includes('not found')) {
+      const errorMsg = error?.message || '';
+      const errorCode = error?.code || '';
+      
+      if (
+        errorMsg.includes('not found') ||
+        errorMsg.includes('does not exist') ||
+        errorCode === 'index_not_found' ||
+        error?.status === 404
+      ) {
         strapi.log.debug(
           `[meilisearch-plus] Index not found for ${contentType} (this is normal on first setup)`
         );
         return 0;
       }
+      
       strapi.log.warn(
         `[meilisearch-plus] getIndexedDocumentCount error for ${contentType}:`,
         error
